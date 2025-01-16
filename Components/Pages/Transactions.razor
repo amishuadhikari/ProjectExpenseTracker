@@ -1,0 +1,132 @@
+@page "/transaction"
+@inject LocalDbService local
+
+<h3>Manage Transactions</h3>
+
+<form @onsubmit="HandleSubmit">
+    <div>
+        <label for="title">Title:</label>
+        <input id="title" @bind="transaction.Title" required />
+    </div>
+    <div>
+        <label for="type">Type:</label>
+        <select id="type" @bind="transaction.Type" required>
+            <option value=""></option>
+            <option value="Income">Income</option>
+            <option value="Expense">Expense</option>
+        </select>
+    </div>
+    <div>
+        <label for="date">Date:</label>
+        <input id="date" type="date" @bind="transaction.Date" required />
+    </div>
+    <div>
+        <label for="note">Note (Optional):</label>
+        <textarea id="note" @bind="transaction.Note" placeholder="Add an optional note"></textarea>
+    </div>
+    <div>
+        <label for="tags">Tags (Comma-separated):</label>
+        <input id="tags" @bind="tagsInput" placeholder="e.g., Grocery, Travel" />
+    </div>
+    <button type="submit">@((isEditMode) ? "Update Transaction" : "Add Transaction")</button>
+    @if (isEditMode)
+    {
+        <button type="button" @onclick="CancelEdit">Cancel</button>
+    }
+</form>
+
+<h3>Transaction List</h3>
+<ul>
+    @foreach (var item in transactions)
+    {
+        <li>
+            <strong>@item.Id</strong>: @item.Title - @item.Type - @item.Date.ToShortDateString()
+            @if (!string.IsNullOrEmpty(item.Note))
+            {
+                <em>(@item.Note)</em>
+            }
+            @if (!string.IsNullOrEmpty(item.Tags))
+            {
+                <small>Tags: @string.Join(", ", item.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries))</small>
+            }
+            <button @onclick="() => EditTransaction(item)">Edit</button>
+            <button @onclick="() => DeleteTransaction(item)">Delete</button>
+        </li>
+    }
+</ul>
+
+@code {
+    Transaction transaction = new Transaction { Date = DateTime.Now };
+    List<Transaction> transactions = new List<Transaction>();
+    bool isEditMode = false;
+    string tagsInput = ""; // To handle comma-separated input for tags
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTransactions();
+    }
+
+    private async Task LoadTransactions()
+    {
+        // Fetch all transactions
+        transactions = await local.GetAllTransactions();
+    }
+
+    private async Task HandleSubmit()
+    {
+        // Assign tags as a comma-separated string
+        transaction.Tags = tagsInput;
+
+        if (isEditMode)
+        {
+            // Update the existing transaction
+            await local.UpdateTransaction(transaction);
+        }
+        else
+        {
+            // Add a new transaction
+            await local.CreateTransaction(transaction);
+        }
+
+        // Refresh the transaction list
+        await LoadTransactions();
+
+        // Reset the form and state
+        CancelEdit();
+    }
+
+    private void EditTransaction(Transaction transactionToEdit)
+    {
+        // Populate the form for editing the selected transaction
+        transaction = new Transaction
+        {
+            Id = transactionToEdit.Id,
+            Title = transactionToEdit.Title,
+            Type = transactionToEdit.Type,
+            Date = transactionToEdit.Date,
+            Note = transactionToEdit.Note,
+            Tags = transactionToEdit.Tags
+        };
+
+        // Populate tags input field
+        tagsInput = transaction.Tags;
+        isEditMode = true;
+    }
+
+    private async Task DeleteTransaction(Transaction transactionToDelete)
+    {
+        // Delete the selected transaction
+        await local.DeleteTransaction(transactionToDelete);
+
+        // Refresh the transaction list
+        await LoadTransactions();
+    }
+
+    private void CancelEdit()
+    {
+        // Reset the form and exit edit mode
+        transaction = new Transaction { Date = DateTime.Now };
+        tagsInput = "";
+        isEditMode = false;
+    }
+}

@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using ProjectExpenseTracker_final;
+using Microsoft.Extensions.Logging;
 
 namespace ProjectExpenseTracker_final;
 
@@ -10,7 +11,11 @@ public static class MauiProgram
         builder
             .UseMauiApp<App>()
             .ConfigureFonts(fonts => { fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular"); });
-
+        
+        
+        
+        builder.Services.AddSingleton<LocalDbService>();
+        
         builder.Services.AddMauiBlazorWebView();
 
 #if DEBUG

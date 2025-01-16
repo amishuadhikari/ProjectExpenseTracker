@@ -1,0 +1,248 @@
+@page "/dashboard"
+@inject LocalDbService local
+@inject IJSRuntime JSRuntime
+
+<style>
+    .dashboard-card {
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .dashboard-header {
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .chart-container {
+        height: 300px;
+    }
+
+    .transaction-list {
+        margin-top: 20px;
+    }
+
+    .transaction-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid #eee;
+        align-items: center;
+    }
+
+    .filters {
+        margin-bottom: 20px;
+    }
+
+    .filters label {
+        margin-right: 10px;
+    }
+
+    .filters input,
+    .filters select {
+        margin-right: 10px;
+    }
+
+    .transaction-note {
+        font-style: italic;
+        color: gray;
+        margin-top: 5px;
+    }
+</style>
+
+<div class="container mt-4">
+    <h3 style="color:green">Available Balance = Total Inflows + Debt - Total Outflows</h3>
+
+    <div class="filters">
+        <label for="filterType">Filter by Type:</label>
+        <select id="filterType" @bind="filterType">
+            <option value="">All</option>
+            <option value="Income">Income</option>
+            <option value="Expense">Expense</option>
+            <option value="Debt">Debt</option>
+        </select>
+
+        <label for="filterTags">Filter by Tags:</label>
+        <input id="filterTags" type="text" @bind="filterTags" placeholder="e.g., Grocery, Travel" />
+
+        <label for="startDate">Start Date:</label>
+        <input id="startDate" type="date" @bind="startDate" />
+
+        <label for="endDate">End Date:</label>
+        <input id="endDate" type="date" @bind="endDate" />
+
+        <label for="sortOrder">Sort by Date:</label>
+        <select id="sortOrder" @bind="sortOrder">
+            <option value="asc">Ascending</option>
+            <option value="desc">Descending</option>
+        </select>
+
+        <button @onclick="ApplyFilters">Apply</button>
+    </div>
+
+    <div class="row">
+        <div class="col-md-4">
+            <div class="dashboard-card bg-success text-white text-center">
+                <h5>Total Inflows</h5>
+                <h2>@totalIncome</h2>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="dashboard-card bg-danger text-white text-center">
+                <h5>Total Outflows</h5>
+                <h2>@totalExpense</h2>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="dashboard-card bg-warning text-white text-center">
+                <h5>Total Debt</h5>
+                <h2>@totalDebt</h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="dashboard-card">
+                <h5>Financial Overview</h5>
+                <div class="chart-container">
+                    <canvas id="financialChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="dashboard-card">
+                <h5>Filtered Transactions</h5>
+                <div class="transaction-list">
+                    @foreach (var transaction in SortTransactions(filteredTransactions))
+                    {
+                    <div class="transaction-item">
+                        <div>
+                            <strong>@transaction.Title</strong>
+                            <div class="transaction-note">@transaction.Note</div>
+                            @if (!string.IsNullOrEmpty(transaction.Tags))
+                            {
+                            <small>Tags: @string.Join(", ", transaction.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries))</small>
+                            }
+                        </div>
+                        <span>@transaction.Date.ToShortDateString()</span>
+                        <span class="@(transaction.Type == "Income" ? "text-success" : transaction.Type == "Expense" ? "text-danger" : "text-warning")">
+                                @transaction.Type
+                            </span>
+                    </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+private List<Transaction> transactions = new List<Transaction>();
+private List<Transaction> filteredTransactions = new List<Transaction>();
+private decimal totalIncome;
+private decimal totalExpense;
+private decimal totalDebt;
+
+private string filterType = "";
+private string filterTags = ""; // Added for filtering by tags
+private DateTime? startDate = null;
+private DateTime? endDate = null;
+private string sortOrder = "asc"; // Default sorting order
+
+protected override async Task OnInitializedAsync()
+{
+// Fetch all transactions from the database
+transactions = await local.GetAllTransactions() ?? new List<Transaction>();
+
+// Initialize filtered transactions
+filteredTransactions = new List<Transaction>(transactions);
+
+// Calculate totals based on the fetched transactions
+CalculateTotals();
+await UpdateChartData();
+}
+
+private void CalculateTotals()
+{
+totalIncome = transactions
+.Where(t => t.Type == "Income")
+.Sum(t => decimal.TryParse(t.Title, out var amount) ? amount : 0);
+
+totalExpense = transactions
+.Where(t => t.Type == "Expense")
+.Sum(t => decimal.TryParse(t.Title, out var amount) ? amount : 0);
+
+totalDebt = Math.Max(0, transactions
+.Where(t => t.Type == "Debt")
+.Sum(t => decimal.TryParse(t.Title, out var amount) ? amount : 0));
+}
+
+private void ApplyFilters()
+{
+filteredTransactions = transactions
+.Where(t =>
+(string.IsNullOrEmpty(filterType) || t.Type == filterType) &&
+(string.IsNullOrEmpty(filterTags) || t.Tags?.Split(',', StringSplitOptions.RemoveEmptyEntries)
+.Any(tag => filterTags.Split(',', StringSplitOptions.RemoveEmptyEntries)
+.Select(ft => ft.Trim()).Contains(tag.Trim())) == true) &&
+(!startDate.HasValue || t.Date >= startDate) &&
+(!endDate.HasValue || t.Date <= endDate))
+.ToList();
+}
+
+private IEnumerable<Transaction> SortTransactions(IEnumerable<Transaction> transactions)
+{
+return sortOrder == "asc"
+? transactions.OrderBy(t => t.Date)
+: transactions.OrderByDescending(t => t.Date);
+}
+
+private async Task UpdateChartData()
+{
+var chartLabels = new[] { "Income", "Expense", "Debt" };
+var chartData = new[] { totalIncome, totalExpense, totalDebt };
+
+// Ensure data is non-negative and valid
+chartData = chartData.Select(value => Math.Max(value, 0)).ToArray();
+
+await JSRuntime.InvokeVoidAsync("renderFinancialChart", chartLabels, chartData);
+}
+}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    function renderFinancialChart(labels, data) {
+        const ctx = document.getElementById('financialChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Financial Overview',
+                    data: data,
+                    backgroundColor: [
+                        'rgba(75, 192, 192, 0.2)', // Income
+                        'rgba(255, 99, 132, 0.2)', // Expense
+                        'rgba(255, 206, 86, 0.2)'  // Debt
+                    ],
+                    borderColor: [
+                        'rgba(75, 192, 192, 1)',
+                        'rgba(255, 99, 132, 1)',
+                        'rgba(255, 206, 86, 1)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    }
+                }
+            }
+        });
+    }
+</script>

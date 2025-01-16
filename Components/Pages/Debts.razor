@@ -1,0 +1,174 @@
+@page "/debt"
+@inject LocalDbService local
+
+<h3>Manage Debts</h3>
+
+<h4 style="color: red">Remaining Debt: @remainingDebt</h4>
+<h4 style="color: green">Cleared Debt: @clearedDebt</h4>
+<h4 style="color: blue">Total Debt: @totalDebt</h4>
+
+<form @onsubmit="HandleSubmit">
+    <div>
+        <label for="title">Amount:</label>
+        <input id="title" @bind="transaction.Title" required />
+    </div>
+    <div>
+        <label for="date">Date:</label>
+        <input id="date" type="date" @bind="transaction.Date" required />
+    </div>
+    <div>
+        <label for="type">Type:</label>
+        <select id="type" @bind="transaction.Type" disabled>
+            <option value="Debt">Debt</option>
+        </select>
+    </div>
+    <div>
+        <label for="note">Note (Optional):</label>
+        <textarea id="note" @bind="transaction.Note" placeholder="Add an optional note"></textarea>
+    </div>
+    <div>
+        <label for="tags">Tags (Comma-separated):</label>
+        <input id="tags" @bind="tagsInput" placeholder="e.g., Loan, Urgent" />
+    </div>
+    <button type="submit">@((isEditMode) ? "Update Debt" : "Add Debt")</button>
+    @if (isEditMode)
+    {
+        <button type="button" @onclick="CancelEdit">Cancel</button>
+    }
+</form>
+
+<h3>Debt List</h3>
+<ul>
+    @foreach (var item in debts)
+    {
+        <li>
+            <strong>@item.Id</strong>: @item.Title - @item.Type - @item.Date.ToShortDateString()
+            @if (!string.IsNullOrEmpty(item.Note))
+            {
+                <em>(@item.Note)</em>
+            }
+            @if (!string.IsNullOrEmpty(item.Tags))
+            {
+                <small>Tags: @string.Join(", ", item.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries))</small>
+            }
+            <button @onclick="() => ClearDebt(item)">Clear</button>
+            <button @onclick="() => EditDebt(item)">Edit</button>
+            <button @onclick="() => DeleteDebt(item)">Delete</button>
+        </li>
+    }
+</ul>
+
+@code {
+    Transaction transaction = new Transaction { Type = "Debt", Date = DateTime.Now };
+    List<Transaction> debts = new List<Transaction>();
+    List<Transaction> clearedDebts = new List<Transaction>(); // To store cleared debts
+    decimal remainingDebt = 0; // Remaining debt after clearing
+    decimal clearedDebt = 0; // Cleared debt
+    decimal totalDebt = 0; // Sum of all debts
+    bool isEditMode = false;
+    string tagsInput = ""; // To handle comma-separated input for tags
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDebts();
+    }
+
+    private async Task LoadDebts()
+    {
+        // Fetch all debts from the database
+        var allTransactions = await local.GetAllTransactions();
+        debts = allTransactions.Where(d => d.Type == "Debt").ToList();
+
+        // Calculate totals and update remaining, cleared, and total debt
+        CalculateDebtTotals();
+    }
+
+    private void CalculateDebtTotals()
+    {
+        totalDebt = debts.Sum(d => decimal.TryParse(d.Title, out var amount) ? amount : 0);
+        clearedDebt = clearedDebts.Sum(d => decimal.TryParse(d.Title, out var amount) ? amount : 0);
+
+        // Ensure remaining debt is non-negative
+        remainingDebt = Math.Max(totalDebt - clearedDebt, 0);
+    }
+
+    private async Task HandleSubmit()
+    {
+        // Assign tags as a comma-separated string
+        transaction.Tags = tagsInput;
+
+        if (isEditMode)
+        {
+            // Update the existing debt transaction
+            await local.UpdateTransaction(transaction);
+        }
+        else
+        {
+            // Add a new debt transaction
+            await local.CreateTransaction(transaction);
+        }
+
+        // Refresh the debt list
+        await LoadDebts();
+
+        // Reset the form and state
+        CancelEdit();
+    }
+
+    private void EditDebt(Transaction debt)
+    {
+        // Populate the form for editing the selected debt
+        transaction = new Transaction
+        {
+            Id = debt.Id,
+            Title = debt.Title,
+            Type = debt.Type,
+            Date = debt.Date,
+            Note = debt.Note,
+            Tags = debt.Tags
+        };
+
+        // Populate tags input field
+        tagsInput = debt.Tags;
+        isEditMode = true;
+    }
+
+    private async Task DeleteDebt(Transaction debt)
+    {
+        // Check if the debt to be deleted is in the cleared list
+        if (clearedDebts.Contains(debt))
+        {
+            // Remove it from the cleared debts and recalculate clearedDebt
+            clearedDebts.Remove(debt);
+        }
+
+        // Delete the selected debt transaction
+        await local.DeleteTransaction(debt);
+
+        // Refresh the debt list
+        await LoadDebts();
+
+        // Ensure remaining debt doesn't go below 0
+        remainingDebt = Math.Max(remainingDebt, 0);
+    }
+
+    private void CancelEdit()
+    {
+        // Reset the form and exit edit mode
+        transaction = new Transaction { Type = "Debt", Date = DateTime.Now };
+        tagsInput = "";
+        isEditMode = false;
+    }
+
+    private void ClearDebt(Transaction debt)
+    {
+        // Move the cleared debt to the clearedDebts list
+        if (!clearedDebts.Contains(debt))
+        {
+            clearedDebts.Add(debt);
+        }
+
+        // Recalculate totals
+        CalculateDebtTotals();
+    }
+}
