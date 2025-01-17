@@ -49,6 +49,10 @@
         color: gray;
         margin-top: 5px;
     }
+
+    .pending-debts-table th, .pending-debts-table td {
+        text-align: center;
+    }
 </style>
 
 <div class="container mt-4">
@@ -71,6 +75,9 @@
 
         <label for="endDate">End Date:</label>
         <input id="endDate" type="date" @bind="endDate" />
+
+        <label for="searchTitle">Search by Title:</label>
+        <input id="searchTitle" type="text" @bind="searchTitle" placeholder="Enter title" />
 
         <label for="sortOrder">Sort by Date:</label>
         <select id="sortOrder" @bind="sortOrder">
@@ -102,6 +109,16 @@
         </div>
     </div>
 
+    <!-- Display Available Balance -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="dashboard-card bg-info text-white text-center">
+                <h5>Available Balance</h5>
+                <h2>@availableBalance</h2>
+            </div>
+        </div>
+    </div>
+
     <div class="row">
         <div class="col-md-6">
             <div class="dashboard-card">
@@ -120,6 +137,7 @@
                     <div class="transaction-item">
                         <div>
                             <strong>@transaction.Title</strong>
+                            <span> - $@transaction.Amount</span>
                             <div class="transaction-note">@transaction.Note</div>
                             @if (!string.IsNullOrEmpty(transaction.Tags))
                             {
@@ -136,80 +154,141 @@
             </div>
         </div>
     </div>
+
+    <!-- Pending Debts Section -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="dashboard-card bg-light">
+                <h5>Pending Debts</h5>
+                <table class="table pending-debts-table">
+                    <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Amount</th>
+                        <th>Date</th>
+                        <th>Actions</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var debt in pendingDebts)
+                    {
+                    <tr>
+                        <td>@debt.Title</td>
+                        <td>$@debt.Amount</td>
+                        <td>@debt.Date.ToShortDateString()</td>
+                        <td>
+                            <button class="btn btn-success btn-sm" @onclick="() => ClearDebt(debt)">Clear</button>
+                        </td>
+                    </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </div>
 
 @code {
-private List<Transaction> transactions = new List<Transaction>();
-private List<Transaction> filteredTransactions = new List<Transaction>();
-private decimal totalIncome;
-private decimal totalExpense;
-private decimal totalDebt;
+    private List<Transaction> transactions = new List<Transaction>();
+    private List<Transaction> filteredTransactions = new List<Transaction>();
+    private List<Transaction> pendingDebts = new List<Transaction>();
+    private decimal totalIncome;
+    private decimal totalExpense;
+    private decimal totalDebt;
+    private decimal availableBalance;
 
-private string filterType = "";
-private string filterTags = ""; // Added for filtering by tags
-private DateTime? startDate = null;
-private DateTime? endDate = null;
-private string sortOrder = "asc"; // Default sorting order
+    private string filterType = "";
+    private string filterTags = "";
+    private DateTime? startDate = null;
+    private DateTime? endDate = null;
+    private string sortOrder = "asc";
+    private string searchTitle = "";
 
-protected override async Task OnInitializedAsync()
-{
-// Fetch all transactions from the database
-transactions = await local.GetAllTransactions() ?? new List<Transaction>();
+    protected override async Task OnInitializedAsync()
+    {
+        // Fetch all transactions from the database
+        transactions = await local.GetAllTransactions() ?? new List<Transaction>();
 
-// Initialize filtered transactions
-filteredTransactions = new List<Transaction>(transactions);
+        // Calculate totals and separate pending debts
+        CalculateTotals();
+        UpdatePendingDebts();
 
-// Calculate totals based on the fetched transactions
-CalculateTotals();
-await UpdateChartData();
+        // Initialize filtered transactions
+        filteredTransactions = new List<Transaction>(transactions);
+
+        // Calculate available balance
+        availableBalance = totalIncome + totalDebt - totalExpense;
+
+        await UpdateChartData();
+    }
+
+    private void CalculateTotals()
+    {
+        totalIncome = transactions.Where(t => t.Type == "Income").Sum(t => t.Amount);
+        totalExpense = transactions.Where(t => t.Type == "Expense").Sum(t => t.Amount);
+        totalDebt = Math.Max(0, transactions.Where(t => t.Type == "Debt").Sum(t => t.Amount));
+    }
+
+    private void UpdatePendingDebts()
+    {
+        // Get all transactions with Type = "Debt" and Amount > 0
+        pendingDebts = transactions.Where(t => t.Type == "Debt" && t.Amount > 0).ToList();
+    }
+
+    private async Task ClearDebt(Transaction debt)
+    {
+        // Mark debt as cleared (Amount = 0)
+        var transactionToClear = transactions.FirstOrDefault(t => t == debt);
+        if (transactionToClear != null)
+        {
+            transactionToClear.Amount = 0;
+
+            // Update the transaction in the database
+            await local.UpdateTransaction(transactionToClear);
+
+            // Recalculate totals and update pending debts
+            CalculateTotals();
+            UpdatePendingDebts();
+
+            // Recalculate available balance
+            availableBalance = totalIncome + totalDebt - totalExpense;
+
+            // Update chart data
+            await UpdateChartData();
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        filteredTransactions = transactions
+            .Where(t =>
+                (string.IsNullOrEmpty(filterType) || t.Type == filterType) &&
+                (string.IsNullOrEmpty(filterTags) || t.Tags?.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Any(tag => filterTags.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(ft => ft.Trim()).Contains(tag.Trim())) == true) &&
+                (!startDate.HasValue || t.Date >= startDate) &&
+                (!endDate.HasValue || t.Date <= endDate) &&
+                (string.IsNullOrEmpty(searchTitle) || t.Title.Contains(searchTitle, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
+    private IEnumerable<Transaction> SortTransactions(IEnumerable<Transaction> transactions)
+    {
+        return sortOrder == "asc" ? transactions.OrderBy(t => t.Date) : transactions.OrderByDescending(t => t.Date);
+    }
+
+    private async Task UpdateChartData()
+    {
+        var chartLabels = new[] { "Income", "Expense", "Debt" };
+        var chartData = new[] { totalIncome, totalExpense, totalDebt };
+
+        chartData = chartData.Select(value => Math.Max(value, 0)).ToArray();
+
+        await JSRuntime.InvokeVoidAsync("renderFinancialChart", chartLabels, chartData);
+    }
 }
 
-private void CalculateTotals()
-{
-totalIncome = transactions
-.Where(t => t.Type == "Income")
-.Sum(t => decimal.TryParse(t.Title, out var amount) ? amount : 0);
 
-totalExpense = transactions
-.Where(t => t.Type == "Expense")
-.Sum(t => decimal.TryParse(t.Title, out var amount) ? amount : 0);
-
-totalDebt = Math.Max(0, transactions
-.Where(t => t.Type == "Debt")
-.Sum(t => decimal.TryParse(t.Title, out var amount) ? amount : 0));
-}
-
-private void ApplyFilters()
-{
-filteredTransactions = transactions
-.Where(t =>
-(string.IsNullOrEmpty(filterType) || t.Type == filterType) &&
-(string.IsNullOrEmpty(filterTags) || t.Tags?.Split(',', StringSplitOptions.RemoveEmptyEntries)
-.Any(tag => filterTags.Split(',', StringSplitOptions.RemoveEmptyEntries)
-.Select(ft => ft.Trim()).Contains(tag.Trim())) == true) &&
-(!startDate.HasValue || t.Date >= startDate) &&
-(!endDate.HasValue || t.Date <= endDate))
-.ToList();
-}
-
-private IEnumerable<Transaction> SortTransactions(IEnumerable<Transaction> transactions)
-{
-return sortOrder == "asc"
-? transactions.OrderBy(t => t.Date)
-: transactions.OrderByDescending(t => t.Date);
-}
-
-private async Task UpdateChartData()
-{
-var chartLabels = new[] { "Income", "Expense", "Debt" };
-var chartData = new[] { totalIncome, totalExpense, totalDebt };
-
-// Ensure data is non-negative and valid
-chartData = chartData.Select(value => Math.Max(value, 0)).ToArray();
-
-await JSRuntime.InvokeVoidAsync("renderFinancialChart", chartLabels, chartData);
-}
-}
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>

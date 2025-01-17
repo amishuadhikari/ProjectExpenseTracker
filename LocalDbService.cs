@@ -38,8 +38,5 @@ namespace ProjectExpenseTracker_final
         {
             await _connection.UpdateAsync(transaction);
         }
-        
-        
-        
     }
 }

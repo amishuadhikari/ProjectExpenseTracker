@@ -9,8 +9,12 @@
 
 <form @onsubmit="HandleSubmit">
     <div>
-        <label for="title">Amount:</label>
-        <input id="title" @bind="transaction.Title" required />
+        <label for="title">Title:</label>
+        <input id="title" @bind="transaction.Title" placeholder="e.g., Loan for Car" required />
+    </div>
+    <div>
+        <label for="amount">Amount:</label>
+        <input id="amount" type="number" step="0.01" @bind="transaction.Amount" required />
     </div>
     <div>
         <label for="date">Date:</label>
@@ -42,7 +46,7 @@
     @foreach (var item in debts)
     {
         <li>
-            <strong>@item.Id</strong>: @item.Title - @item.Type - @item.Date.ToShortDateString()
+            <strong>@item.Title</strong>: $@item.Amount - @item.Type - @item.Date.ToShortDateString()
             @if (!string.IsNullOrEmpty(item.Note))
             {
                 <em>(@item.Note)</em>
@@ -85,8 +89,8 @@
 
     private void CalculateDebtTotals()
     {
-        totalDebt = debts.Sum(d => decimal.TryParse(d.Title, out var amount) ? amount : 0);
-        clearedDebt = clearedDebts.Sum(d => decimal.TryParse(d.Title, out var amount) ? amount : 0);
+        totalDebt = debts.Sum(d => d.Amount);
+        clearedDebt = clearedDebts.Sum(d => d.Amount);
 
         // Ensure remaining debt is non-negative
         remainingDebt = Math.Max(totalDebt - clearedDebt, 0);
@@ -122,6 +126,7 @@
         {
             Id = debt.Id,
             Title = debt.Title,
+            Amount = debt.Amount,
             Type = debt.Type,
             Date = debt.Date,
             Note = debt.Note,
@@ -160,13 +165,19 @@
         isEditMode = false;
     }
 
-    private void ClearDebt(Transaction debt)
+    private async Task ClearDebt(Transaction debt)
     {
         // Move the cleared debt to the clearedDebts list
         if (!clearedDebts.Contains(debt))
         {
             clearedDebts.Add(debt);
         }
+
+        // Set the debt's amount to 0 in the database to mark it as cleared
+        debt.Amount = 0;
+
+        // Update the debt in the database to reflect it as cleared
+        await local.UpdateTransaction(debt);
 
         // Recalculate totals
         CalculateDebtTotals();

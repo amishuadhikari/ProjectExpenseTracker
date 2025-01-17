@@ -17,6 +17,9 @@ namespace ProjectExpenseTracker_final
 
         [Column("title")]
         public string Title { get; set; }
+        
+        [Column("amount")] // column for transaction amounts
+        public decimal Amount { get; set; }
 
         [Column("type")]
         public string Type { get; set; }
@@ -24,7 +27,7 @@ namespace ProjectExpenseTracker_final
         public DateTime Date { get; set; } // Added date column
         [Column("note")] // Optional note for additional information
         public string Note { get; set; }
-        [Column("Tags")] // Not directly stored in SQLite but used for serialization/deserialization
+        [Column("Tags")] 
         public string Tags { get; set; }
     }
 }
